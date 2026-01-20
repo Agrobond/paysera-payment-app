@@ -1,11 +1,11 @@
 {
-  "name": "dummy-payment-app",
+  "name": "paysera-payment-app",
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "pnpm generate && NODE_OPTIONS='--inspect' next dev",
+    "dev": "pnpm generate && NODE_OPTIONS='--inspect' next dev -p 3001",
     "build": "pnpm generate && next build",
-    "start": "next start",
+    "start": "next start -p 3001",
     "lint": "next lint",
     "fetch-schema": "curl https://raw.githubusercontent.com/saleor/saleor/${npm_package_saleor_schemaVersion}/saleor/graphql/schema.graphql > graphql/schema.graphql",
     "generate": "graphql-codegen",
