@@ -13,7 +13,7 @@ const DashboardPage = () => {
         alignItems="center"
         gap={4}
       >
-        <Text size={7}>🚀 Welcome to Dummy Payment App!</Text>
+        <Text size={7}>Paysera Payment App</Text>
       </Box>
     </>
   );

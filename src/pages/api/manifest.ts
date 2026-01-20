@@ -29,7 +29,7 @@ export default wrapWithLoggerContext(
         const apiBaseURL = process.env.APP_API_BASE_URL ?? appBaseUrl;
 
         const manifest: AppManifest = {
-          name: "Dummy Payment App",
+          name: "Paysera Payment App",
           tokenTargetUrl: `${apiBaseURL}/api/register`,
           appUrl: iframeBaseUrl,
           /**
@@ -46,7 +46,7 @@ export default wrapWithLoggerContext(
             "HANDLE_PAYMENTS",
             "MANAGE_ORDERS",
           ],
-          id: "saleor.io.dummy-payment-app",
+          id: "agrobond.paysera-payment-app",
           version: packageJson.version,
           /**
            * Configure webhooks here. They will be created in Saleor during installation

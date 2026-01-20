@@ -1,10 +1,10 @@
-# Saleor Dummy Payment App
+# Paysera Payment App
 
 This file provides guidance to coding agents when working with code in this repository.
 
 ## Project Overview
 
-This is a Saleor Payment App that implements a dummy payment gateway for testing Saleor's Transactions API. It allows testing payment flows without a real payment provider.
+This is a Saleor Payment App that integrates Paysera as a payment gateway. Currently implements the dummy payment flow for testing, with Paysera integration to be added.
 
 ## Development Commands
 
@@ -15,7 +15,7 @@ pnpm install  # Install dependencies
 
 ### Development
 ```bash
-pnpm dev      # Start dev server with codegen and Node.js inspector on port 3000
+pnpm dev      # Start dev server with codegen and Node.js inspector on port 3001
 pnpm build    # Build for production (runs codegen first)
 pnpm start    # Start production server
 ```

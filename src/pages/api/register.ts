@@ -34,7 +34,7 @@ export default wrapWithLoggerContext(
         },
       ],
       onAuthAplSaved: async (_req, context) => {
-        logger.info("Dummy payment app configuration set up successfully", {
+        logger.info("Paysera payment app configuration set up successfully", {
           saleorApiUrl: context.authData.saleorApiUrl,
         });
       },
