@@ -1,0 +1,261 @@
+Paysera Payment Gateway Integration Plan
+
+ Overview
+
+ Integrate Paysera payment gateway into the existing Saleor payment app. The app currently has dummy payment logic
+ that will be replaced with real Paysera API calls.
+
+ Key Requirements:
+ - Configuration via Saleor Dashboard (credentials stored in privateMetadata)
+ - Comprehensive test coverage for all Paysera logic
+ - Secure credential handling
+
+ ---
+ Architecture
+
+ Customer initiates checkout
+         │
+         ▼
+ ┌─────────────────────────────────────────┐
+ │ TRANSACTION_INITIALIZE_SESSION webhook  │
+ │ → Build Paysera payment URL             │
+ │ → Return CHARGE_ACTION_REQUIRED         │
+ │   with redirect URL                     │
+ └─────────────────────────────────────────┘
+         │
+         ▼
+ ┌─────────────────────────────────────────┐
+ │ Customer redirected to Paysera          │
+ │ → Selects payment method                │
+ │ → Completes payment                     │
+ └─────────────────────────────────────────┘
+         │
+         ├──────────────────────────────────┐
+         ▼                                  ▼
+ ┌─────────────────────┐    ┌─────────────────────────────┐
+ │ Customer redirected │    │ Paysera callback to         │
+ │ to accept/cancel    │    │ /api/paysera/callback       │
+ │ URL                 │    │ → Verify signature (ss1)    │
+ └─────────────────────┘    │ → Report to Saleor via      │
+                            │   transactionEventReport    │
+                            │ → Return "OK"               │
+                            └─────────────────────────────┘
+
+ ---
+ File Structure
+
+ New Files
+
+ src/modules/paysera/
+ ├── paysera-types.ts           # TypeScript interfaces
+ ├── paysera-errors.ts          # Custom error classes
+ ├── paysera-request-builder.ts # Request encoding & signing
+ ├── paysera-callback-handler.ts# Callback verification & decoding
+ ├── paysera-client.ts          # Main client class
+ ├── paysera-config.ts          # Config retrieval helpers
+ └── __tests__/
+     ├── paysera-request-builder.test.ts
+     ├── paysera-callback-handler.test.ts
+     ├── paysera-client.test.ts
+     └── paysera-config.test.ts
+
+ src/pages/api/paysera/
+ └── callback.ts                # Paysera callback endpoint
+
+ src/server/routers/
+ └── configuration.router.ts    # tRPC routes for config CRUD
+
+ graphql/mutations/
+ └── UpdateAppPrivateMetadata.graphql
+
+ Modified Files
+
+ src/modules/configuration/app-config.ts      # Add Paysera config schema
+ src/pages/app/configuration.tsx              # Build config UI
+ src/server/routers/app-router.ts             # Add configuration router
+ src/pages/api/webhooks/transaction-initialize-session.ts  # Paysera integration
+ src/setup-tests.ts                           # Test setup
+
+ ---
+ Implementation Steps
+
+ Phase 1: Core Paysera Module
+
+ 1.1 Create Types (src/modules/paysera/paysera-types.ts)
+
+ export interface PayseraConfig {
+   projectId: string;
+   password: string;
+   testMode: boolean;
+ }
+
+ export interface PayseraRequestParams {
+   projectid: string;
+   orderid: string;
+   accepturl: string;
+   cancelurl: string;
+   callbackurl: string;
+   version: string;
+   amount: number;  // cents
+   currency: string;
+   test: 0 | 1;
+   // optional customer fields...
+ }
+
+ export interface PayseraCallbackData {
+   projectid: string;
+   orderid: string;
+   amount: number;
+   currency: string;
+   status: number;  // 1 = success
+   requestid: string;
+   paytext?: string;
+ }
+
+ 1.2 Create Error Classes (src/modules/paysera/paysera-errors.ts)
+
+ - PayseraError - base error
+ - PayseraSignatureError - invalid callback signature
+ - PayseraConfigError - missing/invalid configuration
+
+ 1.3 Implement Request Builder (src/modules/paysera/paysera-request-builder.ts)
+
+ - buildRequest(params) → { data, sign }
+   - URL encode params → Base64 encode → URL-safe transform
+   - Sign: md5(data + password)
+ - getPaymentUrl(data, sign) → full Paysera URL
+
+ 1.4 Implement Callback Handler (src/modules/paysera/paysera-callback-handler.ts)
+
+ - verifyAndDecode(params) → PayseraCallbackData
+   - Verify ss1 = md5(data + password)
+   - Decode: URL-safe reverse → Base64 decode → parse params
+
+ 1.5 Implement Client (src/modules/paysera/paysera-client.ts)
+
+ - createPaymentRequest(transactionId, amount, currency, urls) → { redirectUrl, orderId }
+ - processCallback(params) → PayseraCallbackData
+ - isPaymentSuccessful(callback) → boolean (status === 1)
+
+ Phase 2: Configuration System
+
+ 2.1 Update Config Schema (src/modules/configuration/app-config.ts)
+
+ export const payseraConfigSchema = z.object({
+   projectId: z.string().min(1, "Project ID is required"),
+   password: z.string().min(1, "Password is required"),
+   testMode: z.boolean().default(true),
+ });
+
+ 2.2 Create GraphQL Mutation (graphql/mutations/UpdateAppPrivateMetadata.graphql)
+
+ mutation UpdateAppPrivateMetadata($id: ID!, $input: [MetadataInput!]!) {
+   updatePrivateMetadata(id: $id, input: $input) {
+     item { ... on App { id privateMetadata { key value } } }
+     errors { field message }
+   }
+ }
+
+ 2.3 Create Configuration Router (src/server/routers/configuration.router.ts)
+
+ - getConfig - fetch from privateMetadata
+ - saveConfig - validate & save to privateMetadata
+
+ 2.4 Build Configuration UI (src/pages/app/configuration.tsx)
+
+ - Form fields: Project ID, Password (masked), Test Mode toggle
+ - Save button with loading/success/error states
+ - Uses tRPC client to call configuration router
+
+ Phase 3: Webhook Integration
+
+ 3.1 Modify Transaction Initialize (src/pages/api/webhooks/transaction-initialize-session.ts)
+
+ - Fetch Paysera config from metadata
+ - Create PayseraClient instance
+ - Generate payment URL with callbacks
+ - Return CHARGE_ACTION_REQUIRED with externalUrl pointing to Paysera
+
+ 3.2 Create Callback Endpoint (src/pages/api/paysera/callback.ts)
+
+ - Handle action=accept → redirect to success page
+ - Handle action=cancel → redirect to cancel page
+ - Handle action=callback (server callback):
+   - Verify signature
+   - Decode callback data
+   - Report to Saleor via transactionEventReport mutation
+   - Return "OK"
+
+ Phase 4: Testing
+
+ 4.1 Request Builder Tests
+
+ - URL encoding of params
+ - Base64 URL-safe encoding
+ - MD5 signature generation
+ - Full request building
+
+ 4.2 Callback Handler Tests
+
+ - Signature verification (valid/invalid)
+ - Data decoding
+ - Error handling
+
+ 4.3 Client Tests
+
+ - Payment request creation
+ - Amount conversion (EUR to cents)
+ - Test mode flag
+ - Payment success check
+
+ 4.4 Config Schema Tests
+
+ - Validation of required fields
+ - Default values
+
+ ---
+ Security Considerations
+
+ 1. Credential Storage: Use Saleor privateMetadata (encrypted at rest)
+ 2. Logging: Never log passwords - mask sensitive values
+ 3. Signature Verification: Always verify ss1 before processing callbacks
+ 4. HTTPS: All callback URLs must use HTTPS in production
+ 5. Idempotency: Generate unique order IDs per transaction
+
+ ---
+ Critical Files Reference
+ ┌──────────────────────────────────────────────────────────┬──────────────────────────────┐
+ │                           File                           │           Purpose            │
+ ├──────────────────────────────────────────────────────────┼──────────────────────────────┤
+ │ src/pages/api/webhooks/transaction-initialize-session.ts │ Main webhook to modify       │
+ ├──────────────────────────────────────────────────────────┼──────────────────────────────┤
+ │ src/modules/configuration/app-config.ts                  │ Config schema                │
+ ├──────────────────────────────────────────────────────────┼──────────────────────────────┤
+ │ src/pages/app/configuration.tsx                          │ Config UI                    │
+ ├──────────────────────────────────────────────────────────┼──────────────────────────────┤
+ │ src/server/routers/app-router.ts                         │ Router to extend             │
+ ├──────────────────────────────────────────────────────────┼──────────────────────────────┤
+ │ graphql/mutations/TransactionEventReport.graphql         │ Pattern for reporting events │
+ ├──────────────────────────────────────────────────────────┼──────────────────────────────┤
+ │ src/lib/create-graphql-client.ts                         │ GraphQL client creation      │
+ └──────────────────────────────────────────────────────────┴──────────────────────────────┘
+ ---
+ Verification Plan
+
+ 1. Unit Tests: Run pnpm test - all Paysera module tests pass
+ 2. Build: Run pnpm build - no TypeScript errors
+ 3. Lint: Run pnpm lint - no linting errors
+ 4. Manual Testing:
+   - Configure Paysera credentials in Dashboard
+   - Initiate checkout in storefront
+   - Verify redirect to Paysera (sandbox)
+   - Complete test payment
+   - Verify callback received and transaction updated
+
+ ---
+ Dependencies
+
+ No new npm packages required. Uses:
+ - crypto (Node.js built-in) for MD5
+ - zod (existing) for validation
+ - Existing tRPC/urql infrastructure

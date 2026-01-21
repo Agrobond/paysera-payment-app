@@ -20,4 +20,35 @@ fragment TransactionInitializeSessionEvent on TransactionInitializeSession {
   transaction {
     ...SyncWebhookTransaction
   }
+  sourceObject {
+    ... on Checkout {
+      id
+      email
+      billingAddress {
+        firstName
+        lastName
+        streetAddress1
+        city
+        postalCode
+        country {
+          code
+        }
+      }
+      languageCode
+    }
+    ... on Order {
+      id
+      userEmail
+      billingAddress {
+        firstName
+        lastName
+        streetAddress1
+        city
+        postalCode
+        country {
+          code
+        }
+      }
+    }
+  }
 }
