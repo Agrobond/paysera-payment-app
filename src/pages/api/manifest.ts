@@ -27,10 +27,11 @@ export default wrapWithLoggerContext(
          */
         const iframeBaseUrl = process.env.APP_IFRAME_BASE_URL ?? appBaseUrl;
         const apiBaseURL = process.env.APP_API_BASE_URL ?? appBaseUrl;
+        const apiBaseURLClean = apiBaseURL.replace(/\/$/, "");
 
         const manifest: AppManifest = {
           name: "Paysera Payment App",
-          tokenTargetUrl: `${apiBaseURL}/api/register`,
+          tokenTargetUrl: `${apiBaseURLClean}/api/register`,
           appUrl: iframeBaseUrl,
           /**
            * Set permissions for app if needed
@@ -72,7 +73,7 @@ export default wrapWithLoggerContext(
           author: "Saleor Commerce",
           brand: {
             logo: {
-              default: `${apiBaseURL}/logo.png`,
+              default: `${apiBaseURLClean}/logo.png`,
             },
           },
         };
