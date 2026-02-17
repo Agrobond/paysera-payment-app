@@ -1,15 +1,22 @@
+import { useAppBridge } from "@saleor/app-sdk/app-bridge";
 import { Box, Button, Input, Text, Toggle } from "@saleor/macaw-ui";
 import React, { useEffect, useState } from "react";
 import { trpcClient } from "@/trpc-client";
 
 const ConfigurationPage = () => {
+  const { appBridgeState } = useAppBridge();
   const [projectId, setProjectId] = useState("");
   const [password, setPassword] = useState("");
   const [testMode, setTestMode] = useState(true);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
 
-  const configQuery = trpcClient.configuration.getConfig.useQuery();
+  // Only run query when app bridge is ready (has token)
+  const isAppReady = !!appBridgeState?.token;
+
+  const configQuery = trpcClient.configuration.getConfig.useQuery(undefined, {
+    enabled: isAppReady,
+  });
   const saveConfigMutation = trpcClient.configuration.saveConfig.useMutation();
 
   useEffect(() => {
@@ -50,7 +57,7 @@ const ConfigurationPage = () => {
     }
   };
 
-  if (configQuery.isLoading) {
+  if (!isAppReady || configQuery.isLoading) {
     return (
       <Box
         display="flex"
@@ -61,6 +68,28 @@ const ConfigurationPage = () => {
         alignItems="center"
       >
         <Text size={5}>Loading configuration...</Text>
+      </Box>
+    );
+  }
+
+  if (configQuery.error) {
+    return (
+      <Box
+        display="flex"
+        flexDirection="column"
+        height="100%"
+        width="100%"
+        justifyContent="center"
+        alignItems="center"
+        gap={4}
+      >
+        <Text size={5} color="critical1">
+          Error loading configuration
+        </Text>
+        <Text size={3} color="default2">
+          {configQuery.error.message}
+        </Text>
+        <Button onClick={() => configQuery.refetch()}>Retry</Button>
       </Box>
     );
   }
