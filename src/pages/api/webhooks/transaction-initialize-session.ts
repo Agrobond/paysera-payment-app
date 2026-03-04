@@ -149,7 +149,6 @@ export default wrapWithLoggerContext(
           message: "Redirect to Paysera to complete payment",
           actions: getTransactionActions("CHARGE_ACTION_REQUIRED"),
           amount,
-          externalUrl: paymentRequest.redirectUrl,
           data: {
             payseraOrderId: paymentRequest.orderId,
             redirectUrl: paymentRequest.redirectUrl,
