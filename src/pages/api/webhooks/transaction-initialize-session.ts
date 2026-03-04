@@ -152,6 +152,7 @@ export default wrapWithLoggerContext(
           externalUrl: paymentRequest.redirectUrl,
           data: {
             payseraOrderId: paymentRequest.orderId,
+            redirectUrl: paymentRequest.redirectUrl,
           },
         };
 
