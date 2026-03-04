@@ -118,14 +118,16 @@ export default wrapWithLoggerContext(
 
       // Create payment request
       const saleorApiUrl = encodeURIComponent(ctx.authData.saleorApiUrl);
+      const checkoutId = encodeURIComponent(payload.sourceObject?.id ?? "");
+      const locale = language || "lt";
       try {
         const paymentRequest = payseraClient.createPaymentRequest({
           transactionId,
           amount,
           currency,
           urls: {
-            acceptUrl: `${baseUrl}/api/paysera/callback?action=accept&transactionId=${transactionId}&saleorApiUrl=${saleorApiUrl}`,
-            cancelUrl: `${baseUrl}/api/paysera/callback?action=cancel&transactionId=${transactionId}&saleorApiUrl=${saleorApiUrl}`,
+            acceptUrl: `${baseUrl}/api/paysera/callback?action=accept&transactionId=${transactionId}&saleorApiUrl=${saleorApiUrl}&checkoutId=${checkoutId}&locale=${locale}`,
+            cancelUrl: `${baseUrl}/api/paysera/callback?action=cancel&transactionId=${transactionId}&saleorApiUrl=${saleorApiUrl}&checkoutId=${checkoutId}&locale=${locale}`,
             callbackUrl: `${baseUrl}/api/paysera/callback?action=callback&transactionId=${transactionId}&saleorApiUrl=${saleorApiUrl}`,
           },
           customerEmail,

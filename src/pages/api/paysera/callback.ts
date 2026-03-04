@@ -6,6 +6,7 @@ import {
   TransactionEventReportDocument,
   TransactionActionEnum,
   TransactionEventTypeEnum,
+  CompleteCheckoutDocument,
 } from "@/generated/graphql";
 import { v7 as uuidv7 } from "uuid";
 import {
@@ -21,14 +22,8 @@ const logger = createLogger("paysera-callback");
 
 type CallbackAction = "accept" | "cancel" | "callback";
 
-function getRedirectUrl(success: boolean): string {
-  // Use STOREFRONT_URL env var if set, otherwise default to a relative path
-  const storefrontUrl = process.env.STOREFRONT_URL || "";
-
-  if (success) {
-    return `${storefrontUrl}/checkout/success`;
-  }
-  return `${storefrontUrl}/checkout/cancel`;
+function getStorefrontBase(): string {
+  return (process.env.STOREFRONT_URL || "").replace(/\/$/, "");
 }
 
 async function handleAcceptRedirect(
@@ -36,8 +31,78 @@ async function handleAcceptRedirect(
   res: NextApiResponse,
   transactionId: string
 ) {
-  logger.info("Payment accepted, redirecting customer", { transactionId });
-  res.redirect(302, getRedirectUrl(true));
+  const { checkoutId, locale, saleorApiUrl } = req.query;
+  const checkoutIdStr = Array.isArray(checkoutId) ? checkoutId[0] : checkoutId;
+  const localeStr = (Array.isArray(locale) ? locale[0] : locale) || "lt";
+  const saleorApiUrlRaw = Array.isArray(saleorApiUrl) ? saleorApiUrl[0] : saleorApiUrl;
+  const saleorApiUrlStr = saleorApiUrlRaw ? decodeURIComponent(saleorApiUrlRaw) : undefined;
+  const storefrontBase = getStorefrontBase();
+
+  logger.info("Payment accepted, attempting checkout completion", {
+    transactionId,
+    checkoutId: checkoutIdStr,
+    locale: localeStr,
+  });
+
+  // Try to complete the checkout and get the orderId so we can redirect straight
+  // to the order confirmation page. Requires checkoutId and saleorApiUrl.
+  if (checkoutIdStr && saleorApiUrlStr) {
+    const decodedCheckoutId = decodeURIComponent(checkoutIdStr);
+    const authData = await saleorApp.apl.get(saleorApiUrlStr);
+
+    if (authData) {
+      const client = createClient(saleorApiUrlStr, async () =>
+        Promise.resolve({ token: authData.token })
+      );
+
+      // Retry once after a short delay to handle the race condition where the
+      // server callback (CHARGE_SUCCESS) may still be in flight.
+      let orderId: string | undefined;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (attempt > 0) {
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+
+        const completeResult = await client.mutation(CompleteCheckoutDocument, {
+          id: decodedCheckoutId,
+        });
+
+        if (completeResult.error) {
+          logger.error("checkoutComplete urql error on accept", {
+            error: completeResult.error,
+            attempt,
+          });
+          continue;
+        }
+
+        const errors = completeResult.data?.checkoutComplete?.errors;
+        if (errors?.length) {
+          logger.warn("checkoutComplete returned errors on accept", { errors, attempt });
+          continue;
+        }
+
+        orderId = completeResult.data?.checkoutComplete?.order?.id;
+        if (orderId) {
+          break;
+        }
+      }
+
+      if (orderId) {
+        logger.info("Checkout completed, redirecting to order confirmation", { orderId });
+        return res.redirect(302, `${storefrontBase}/${localeStr}/checkout?order=${encodeURIComponent(orderId)}`);
+      }
+
+      logger.warn("Could not obtain orderId after checkoutComplete, falling back to checkout page");
+    } else {
+      logger.warn("No auth data found for saleorApiUrl on accept redirect", { saleorApiUrlStr });
+    }
+
+    // Fallback: send user back to checkout page; they can retry
+    return res.redirect(302, `${storefrontBase}/${localeStr}/checkout?checkout=${encodeURIComponent(decodedCheckoutId)}`);
+  }
+
+  // No checkoutId — last resort
+  return res.redirect(302, storefrontBase || "/");
 }
 
 async function handleCancelRedirect(
@@ -45,8 +110,19 @@ async function handleCancelRedirect(
   res: NextApiResponse,
   transactionId: string
 ) {
-  logger.info("Payment cancelled, redirecting customer", { transactionId });
-  res.redirect(302, getRedirectUrl(false));
+  const { checkoutId, locale } = req.query;
+  const checkoutIdStr = Array.isArray(checkoutId) ? checkoutId[0] : checkoutId;
+  const localeStr = (Array.isArray(locale) ? locale[0] : locale) || "lt";
+  const storefrontBase = getStorefrontBase();
+
+  logger.info("Payment cancelled, redirecting customer", { transactionId, checkoutId: checkoutIdStr });
+
+  if (checkoutIdStr) {
+    const decodedCheckoutId = decodeURIComponent(checkoutIdStr);
+    return res.redirect(302, `${storefrontBase}/${localeStr}/checkout?checkout=${encodeURIComponent(decodedCheckoutId)}`);
+  }
+
+  return res.redirect(302, storefrontBase || "/");
 }
 
 async function handleServerCallback(
