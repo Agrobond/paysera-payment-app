@@ -35,6 +35,9 @@ COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 # Ensure the app can write .auth-data.json for File APL
 RUN chown nextjs:nodejs /app
 
+# Create /data for FILE_APL_PATH volume mount, owned by nextjs
+RUN mkdir -p /data && chown nextjs:nodejs /data
+
 USER nextjs
 EXPOSE 3001
 
