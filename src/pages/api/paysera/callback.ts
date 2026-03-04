@@ -6,7 +6,6 @@ import {
   TransactionEventReportDocument,
   TransactionActionEnum,
   TransactionEventTypeEnum,
-  CompleteCheckoutDocument,
 } from "@/generated/graphql";
 import { v7 as uuidv7 } from "uuid";
 import {
@@ -31,77 +30,28 @@ async function handleAcceptRedirect(
   res: NextApiResponse,
   transactionId: string
 ) {
-  const { checkoutId, locale, saleorApiUrl } = req.query;
+  const { checkoutId, locale } = req.query;
   const checkoutIdStr = Array.isArray(checkoutId) ? checkoutId[0] : checkoutId;
   const localeStr = (Array.isArray(locale) ? locale[0] : locale) || "lt";
-  const saleorApiUrlRaw = Array.isArray(saleorApiUrl) ? saleorApiUrl[0] : saleorApiUrl;
-  const saleorApiUrlStr = saleorApiUrlRaw ? decodeURIComponent(saleorApiUrlRaw) : undefined;
   const storefrontBase = getStorefrontBase();
 
-  logger.info("Payment accepted, attempting checkout completion", {
+  logger.info("Payment accepted, redirecting customer to storefront", {
     transactionId,
     checkoutId: checkoutIdStr,
     locale: localeStr,
   });
 
-  // Try to complete the checkout and get the orderId so we can redirect straight
-  // to the order confirmation page. Requires checkoutId and saleorApiUrl.
-  if (checkoutIdStr && saleorApiUrlStr) {
+  // Redirect back to the storefront checkout page with a `paysera=1` marker.
+  // The storefront detects this param and calls checkoutComplete using the
+  // user's own auth context (which resolves email for logged-in users).
+  if (checkoutIdStr) {
     const decodedCheckoutId = decodeURIComponent(checkoutIdStr);
-    const authData = await saleorApp.apl.get(saleorApiUrlStr);
-
-    if (authData) {
-      const client = createClient(saleorApiUrlStr, async () =>
-        Promise.resolve({ token: authData.token })
-      );
-
-      // Retry once after a short delay to handle the race condition where the
-      // server callback (CHARGE_SUCCESS) may still be in flight.
-      let orderId: string | undefined;
-      for (let attempt = 0; attempt < 2; attempt++) {
-        if (attempt > 0) {
-          await new Promise((r) => setTimeout(r, 1500));
-        }
-
-        const completeResult = await client.mutation(CompleteCheckoutDocument, {
-          id: decodedCheckoutId,
-        });
-
-        if (completeResult.error) {
-          logger.error("checkoutComplete urql error on accept", {
-            error: completeResult.error,
-            attempt,
-          });
-          continue;
-        }
-
-        const errors = completeResult.data?.checkoutComplete?.errors;
-        if (errors?.length) {
-          logger.warn("checkoutComplete returned errors on accept", { errors, attempt });
-          continue;
-        }
-
-        orderId = completeResult.data?.checkoutComplete?.order?.id;
-        if (orderId) {
-          break;
-        }
-      }
-
-      if (orderId) {
-        logger.info("Checkout completed, redirecting to order confirmation", { orderId });
-        return res.redirect(302, `${storefrontBase}/${localeStr}/checkout?order=${encodeURIComponent(orderId)}`);
-      }
-
-      logger.warn("Could not obtain orderId after checkoutComplete, falling back to checkout page");
-    } else {
-      logger.warn("No auth data found for saleorApiUrl on accept redirect", { saleorApiUrlStr });
-    }
-
-    // Fallback: send user back to checkout page; they can retry
-    return res.redirect(302, `${storefrontBase}/${localeStr}/checkout?checkout=${encodeURIComponent(decodedCheckoutId)}`);
+    return res.redirect(
+      302,
+      `${storefrontBase}/${localeStr}/checkout?checkout=${encodeURIComponent(decodedCheckoutId)}&paysera=1`
+    );
   }
 
-  // No checkoutId — last resort
   return res.redirect(302, storefrontBase || "/");
 }
 
