@@ -41,14 +41,14 @@ async function handleAcceptRedirect(
     locale: localeStr,
   });
 
-  // Redirect back to the storefront checkout page with a `paysera=1` marker.
+  // Redirect back to the storefront checkout page with a `paymentReturn=1` marker.
   // The storefront detects this param and calls checkoutComplete using the
   // user's own auth context (which resolves email for logged-in users).
   if (checkoutIdStr) {
     const decodedCheckoutId = decodeURIComponent(checkoutIdStr);
     return res.redirect(
       302,
-      `${storefrontBase}/${localeStr}/checkout?checkout=${encodeURIComponent(decodedCheckoutId)}&paysera=1`
+      `${storefrontBase}/${localeStr}/checkout?checkout=${encodeURIComponent(decodedCheckoutId)}&paymentReturn=1`
     );
   }
 
