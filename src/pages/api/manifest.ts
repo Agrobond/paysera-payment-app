@@ -70,7 +70,7 @@ export default wrapWithLoggerContext(
            * https://docs.saleor.io/docs/3.x/developer/extending/apps/extending-dashboard-with-apps
            */
           extensions: [],
-          author: "Saleor Commerce",
+          author: "Agrobond",
           brand: {
             logo: {
               default: `${apiBaseURLClean}/logo.png`,
