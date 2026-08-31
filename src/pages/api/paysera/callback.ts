@@ -156,16 +156,16 @@ async function handleServerCallback(
 
   if (payseraClient.isPaymentSuccessful(callbackData)) {
     eventType = TransactionEventTypeEnum.ChargeSuccess;
-    message = "Payment completed successfully";
+    message = "Mokėjimas sėkmingai atliktas";
   } else if (callbackData.status === PayseraStatus.PENDING) {
     eventType = TransactionEventTypeEnum.ChargeRequest;
-    message = "Payment pending";
+    message = "Mokėjimas laukia patvirtinimo";
   } else if (callbackData.status === PayseraStatus.ACCEPTED_NOT_EXECUTED) {
     eventType = TransactionEventTypeEnum.ChargeRequest;
-    message = "Payment accepted, waiting for execution";
+    message = "Mokėjimas priimtas, laukiama įvykdymo";
   } else {
     eventType = TransactionEventTypeEnum.ChargeFailure;
-    message = "Payment failed";
+    message = "Mokėjimas nepavyko";
   }
 
   // Report event to Saleor

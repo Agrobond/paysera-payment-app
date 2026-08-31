@@ -6,5 +6,5 @@ interface AppContentProps {
 }
 
 export const AppContent = ({ children }: AppContentProps) => {
-  return <Box __height="90vh">{children}</Box>;
+  return <Box __height="100vh">{children}</Box>;
 };

@@ -68,7 +68,7 @@ export default wrapWithLoggerContext(
       const successResponse: ResponseType = {
         pspReference: data.event.includePspReference ? uuidv7() : undefined,
         result: data.event.type,
-        message: "Great success!",
+        message: "Operacija sėkminga",
         actions: getTransactionActions(data.event.type as TransactionEventTypeEnum),
         amount,
         externalUrl: urlGenerator.getTransactionDetailsUrl(payload.transaction.id),

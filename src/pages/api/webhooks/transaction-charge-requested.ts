@@ -62,7 +62,7 @@ export default wrapWithLoggerContext(
         pspReference: uuidv7(),
         // TODO: Add result customization
         result: "CHARGE_SUCCESS",
-        message: "Great success!",
+        message: "Mokėjimas nuskaitytas",
         actions: getTransactionActions("CHARGE_SUCCESS"),
         amount,
         externalUrl: urlGenerator.getTransactionDetailsUrl(parsedPayload.transaction.id),

@@ -13,12 +13,7 @@ import { AppUrlGenerator } from "@/modules/url/app-url-generator";
 import { wrapWithLoggerContext } from "@/lib/logger/logger-context";
 import { withOtel } from "@/lib/otel/otel-wrapper";
 import { loggerContext } from "@/logger-context";
-import {
-  getPayseraConfigFromMetadata,
-  PayseraClient,
-  PayseraConfigError,
-  maskPassword,
-} from "@/modules/paysera";
+import { getPayseraConfigFromMetadata, PayseraClient, maskPassword } from "@/modules/paysera";
 
 export const transactionInitializeSessionWebhook =
   new SaleorSyncWebhook<TransactionInitializeSessionEventFragment>({
@@ -69,10 +64,7 @@ export default wrapWithLoggerContext(
             actionType === TransactionFlowStrategyEnum.Charge
               ? "CHARGE_FAILURE"
               : "AUTHORIZATION_FAILURE",
-          message:
-            error instanceof PayseraConfigError
-              ? error.message
-              : "Paysera payment gateway is not configured",
+          message: "Paysera mokėjimai nesukonfigūruoti. Kreipkitės į parduotuvės administratorių.",
           amount,
           actions: [],
           data: {
@@ -148,7 +140,7 @@ export default wrapWithLoggerContext(
         const successResponse: ResponseType = {
           pspReference,
           result: "CHARGE_ACTION_REQUIRED",
-          message: "Redirect to Paysera to complete payment",
+          message: "Nukreipiama į Paysera mokėjimui užbaigti",
           actions: getTransactionActions("CHARGE_ACTION_REQUIRED"),
           amount,
           data: {
@@ -169,7 +161,8 @@ export default wrapWithLoggerContext(
             actionType === TransactionFlowStrategyEnum.Charge
               ? "CHARGE_FAILURE"
               : "AUTHORIZATION_FAILURE",
-          message: error instanceof Error ? error.message : "Failed to create payment request",
+          message:
+            "Nepavyko pradėti Paysera mokėjimo. Bandykite dar kartą arba pasirinkite kitą mokėjimo būdą.",
           amount,
           actions: [],
           data: {

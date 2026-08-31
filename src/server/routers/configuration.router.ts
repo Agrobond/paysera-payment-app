@@ -27,7 +27,7 @@ export const configurationRouter = router({
     if (result.error) {
       logger.error("Failed to fetch app details", { error: result.error });
       throw new TRPCError({
-        message: "Failed to fetch app configuration",
+        message: "Nepavyko gauti programėlės nustatymų",
         code: "INTERNAL_SERVER_ERROR",
         cause: result.error,
       });
@@ -65,7 +65,8 @@ export const configurationRouter = router({
     .input(
       z.object({
         projectId: payseraConfigSchema.shape.projectId,
-        password: payseraConfigSchema.shape.password,
+        // Optional: when omitted/blank, the currently stored password is kept.
+        password: z.string().optional(),
         testMode: payseraConfigSchema.shape.testMode,
       })
     )
@@ -81,7 +82,7 @@ export const configurationRouter = router({
       if (appResult.error) {
         logger.error("Failed to fetch app details", { error: appResult.error });
         throw new TRPCError({
-          message: "Failed to fetch app details",
+          message: "Nepavyko gauti programėlės informacijos",
           code: "INTERNAL_SERVER_ERROR",
           cause: appResult.error,
         });
@@ -92,15 +93,42 @@ export const configurationRouter = router({
       if (!appId) {
         logger.error("App ID not found");
         throw new TRPCError({
-          message: "App ID not found",
+          message: "Nepavyko nustatyti programėlės ID",
           code: "INTERNAL_SERVER_ERROR",
         });
+      }
+
+      // Resolve the password: use the newly entered one, otherwise keep the value
+      // that is already stored. The config form clears the password field after
+      // every save, so a plain re-save (e.g. just toggling test mode) sends no
+      // password — that must NOT wipe the stored one.
+      const newPassword = input.password?.trim();
+      let password: string;
+
+      if (newPassword) {
+        password = newPassword;
+      } else {
+        let existingConfig;
+        try {
+          existingConfig = getPayseraConfigFromMetadata(appResult.data?.app?.privateMetadata);
+        } catch {
+          existingConfig = null;
+        }
+
+        if (!existingConfig) {
+          throw new TRPCError({
+            message: "Įveskite projekto slaptažodį",
+            code: "BAD_REQUEST",
+          });
+        }
+
+        password = existingConfig.password;
       }
 
       // Serialize and save the configuration
       const configMetadata = serializePayseraConfig({
         projectId: input.projectId,
-        password: input.password,
+        password,
         testMode: input.testMode,
       });
 
@@ -112,7 +140,7 @@ export const configurationRouter = router({
       if (updateResult.error) {
         logger.error("Failed to update private metadata", { error: updateResult.error });
         throw new TRPCError({
-          message: "Failed to save configuration",
+          message: "Nepavyko išsaugoti nustatymų",
           code: "INTERNAL_SERVER_ERROR",
           cause: updateResult.error,
         });

@@ -4,7 +4,9 @@ This file provides guidance to coding agents when working with code in this repo
 
 ## Project Overview
 
-This is a Saleor Payment App that integrates Paysera as a payment gateway. Currently implements the dummy payment flow for testing, with Paysera integration to be added.
+This is a Saleor Payment App that integrates Paysera (WebToPay / "Payments for checkout" classic flow)
+as a payment gateway: `TRANSACTION_INITIALIZE_SESSION` builds the signed Paysera redirect URL, and
+`/api/paysera/callback` verifies the `ss1` signature and reports the result back to Saleor.
 
 ## Development Commands
 
@@ -99,12 +101,25 @@ Created via `createClient` in `src/lib/create-graphql-client.ts`:
 - Request context propagation via `logger-context.ts`
 
 ### Pages Structure
-- `/` - Landing page
-- `/app/` - Dashboard pages (must be opened in Saleor Dashboard iframe context):
-  - `/app/index.tsx` - Main app page
-  - `/app/configuration.tsx` - App configuration
-  - `/app/checkout.tsx` - Checkout testing UI
-  - `/app/transactions/` - Transaction list and details
+- `/` - Public landing page (only shown outside the Dashboard iframe; redirects to `/app` when opened via the Dashboard)
+- `/app` (`src/pages/app/index.tsx`) - **the only in-app page**: the Paysera configuration form. Opens
+  immediately when the app is launched from the Dashboard — there is no navigation bar and no other
+  screens. The template's `checkout`/`transactions` testing pages and the top `Navigation` were removed.
+
+### UI language & configuration behaviour
+- **All user-facing copy is Lithuanian** — the config form, the public landing page, tRPC error
+  messages, the customer-facing transaction `message` fields in the webhooks, and the `paysera/callback`
+  status messages. The manifest `name` is "Paysera mokėjimai".
+- **Test vs production is one toggle, same credentials.** The app stores a single `projectId` +
+  `password` (Paysera project "sign" password from *Bendri nustatymai*) in app `privateMetadata`
+  (`paysera_config`). The "Bandymų režimas" toggle only flips the WebToPay `test` param (`1` ↔ `0`);
+  there is no separate sandbox endpoint or sandbox credential set.
+- **The config form never sends the stored password back to the browser** and clears its password
+  field after every save. `saveConfig` treats an omitted/blank `password` as "keep the currently
+  stored value" (reads it back from `privateMetadata`) — a plain re-save (e.g. just toggling test
+  mode) must not wipe it. Regression history: an earlier version sent the literal string
+  `"unchanged"` which got written as the password, producing Paysera's *"Blogai sugeneruotas sign
+  parametras"* error at checkout.
 
 ### Environment Variables
 Optional for local development (defaults work without Docker):

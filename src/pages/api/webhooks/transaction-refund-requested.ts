@@ -65,7 +65,7 @@ export default wrapWithLoggerContext(
         pspReference: uuidv7(),
         // TODO: Add result customization
         result: "REFUND_SUCCESS",
-        message: "Great success!",
+        message: "Lėšos grąžintos",
         actions: transactionRefundChecker.checkIfAnotherRefundIsPossible(
           amount,
           payload.transaction?.chargedAmount

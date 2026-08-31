@@ -62,7 +62,7 @@ export default wrapWithLoggerContext(
         pspReference: uuidv7(),
         // TODO: Add result customization
         result: "CANCEL_SUCCESS",
-        message: "Great success!",
+        message: "Mokėjimas atšauktas",
         actions: getTransactionActions("CANCEL_SUCCESS"),
         amount,
         externalUrl: urlGenerator.getTransactionDetailsUrl(parsedPayload.transaction.id),

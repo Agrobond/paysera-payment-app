@@ -30,7 +30,7 @@ export default wrapWithLoggerContext(
         const apiBaseURLClean = apiBaseURL.replace(/\/$/, "");
 
         const manifest: AppManifest = {
-          name: "Paysera Payment App",
+          name: "Paysera mokėjimai",
           tokenTargetUrl: `${apiBaseURLClean}/api/register`,
           appUrl: iframeBaseUrl,
           /**

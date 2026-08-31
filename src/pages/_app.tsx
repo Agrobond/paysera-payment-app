@@ -10,7 +10,6 @@ import { ThemeProvider } from "@saleor/macaw-ui";
 import { NoSSRWrapper } from "../lib/no-ssr-wrapper";
 import { ThemeSynchronizer } from "../lib/theme-synchronizer";
 import { GraphQLProvider } from "../providers/GraphQLProvider";
-import { Navigation } from "../components/Navigation";
 import { AppContent } from "../components/AppContent";
 import { trpcClient } from "@/trpc-client";
 
@@ -38,7 +37,6 @@ function NextApp({ Component, pageProps }: AppProps) {
           <ThemeProvider>
             <ThemeSynchronizer />
             <RoutePropagator />
-            <Navigation />
             <AppContent>
               <Component {...pageProps} />
             </AppContent>
