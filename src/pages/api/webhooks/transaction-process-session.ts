@@ -40,12 +40,19 @@ export default wrapWithLoggerContext(
       if (dataResult.error) {
         logger.warn("Invalid data field received in notification", { error: dataResult.error });
 
+        // Report the payment as still in progress, NOT as failed. This handler is
+        // the unmodified app-template stub: `dataSchema` only accepts the
+        // template's own test-harness shape, so any real caller lands here. The
+        // Paysera flow never calls `transactionProcess` (only the Adyen and
+        // Stripe drop-ins do), but declaring a live payment dead because this
+        // stub could not parse its payload would be a bad way to find that out.
+        // A *_REQUEST result leaves the real callback free to resolve it.
         const errorResponse: ResponseType = {
           pspReference: uuidv7(),
           result:
             actionType === TransactionFlowStrategyEnum.Charge
-              ? "CHARGE_FAILURE"
-              : "AUTHORIZATION_FAILURE",
+              ? "CHARGE_REQUEST"
+              : "AUTHORIZATION_REQUEST",
           message: getZodErrorMessage(dataResult.error),
           amount,
           actions: [],

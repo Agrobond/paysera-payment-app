@@ -4,10 +4,10 @@ import { createClient } from "@/lib/create-graphql-client";
 import { createLogger } from "@/lib/logger/create-logger";
 import {
   TransactionEventReportDocument,
+  TransactionDetailsViaIdDocument,
   TransactionActionEnum,
   TransactionEventTypeEnum,
 } from "@/generated/graphql";
-import { v7 as uuidv7 } from "uuid";
 import {
   getPayseraConfigFromMetadata,
   PayseraClient,
@@ -41,14 +41,20 @@ async function handleAcceptRedirect(
     locale: localeStr,
   });
 
-  // Redirect back to the storefront checkout page with a `paymentReturn=1` marker.
-  // The storefront detects this param and calls checkoutComplete using the
-  // user's own auth context (which resolves email for logged-in users).
+  // Redirect back to the storefront checkout page with a `paymentReturn=paysera`
+  // marker. The storefront detects this param and calls checkoutComplete using
+  // the user's own auth context (which resolves email for logged-in users).
+  //
+  // The marker names the gateway rather than being a bare `1`, because the
+  // storefront used to pair it with a sessionStorage flag to tell gateways
+  // apart. sessionStorage is per-tab, and mobile banking apps routinely return
+  // the customer in a fresh tab or webview -- the flag was missing, the
+  // completion silently skipped, and the order was never created.
   if (checkoutIdStr) {
     const decodedCheckoutId = decodeURIComponent(checkoutIdStr);
     return res.redirect(
       302,
-      `${storefrontBase}/${localeStr}/checkout?checkout=${encodeURIComponent(decodedCheckoutId)}&paymentReturn=1`
+      `${storefrontBase}/${localeStr}/checkout?checkout=${encodeURIComponent(decodedCheckoutId)}&paymentReturn=paysera`
     );
   }
 
@@ -163,14 +169,39 @@ async function handleServerCallback(
   } else if (callbackData.status === PayseraStatus.ACCEPTED_NOT_EXECUTED) {
     eventType = TransactionEventTypeEnum.ChargeRequest;
     message = "Mokėjimas priimtas, laukiama įvykdymo";
+  } else if (callbackData.status === PayseraStatus.ADDITIONAL_INFO_REQUIRED) {
+    // Paysera follows a successful payment with a second callback carrying
+    // supplementary payer details, 15-90s later. It is purely informational.
+    // Without this branch it fell through to the failure case below and stamped
+    // already-paid transactions as failed -- including orders 12224 and 12225.
+    eventType = TransactionEventTypeEnum.Info;
+    message = "Paysera pateikė papildomą mokėjimo informaciją";
   } else {
     eventType = TransactionEventTypeEnum.ChargeFailure;
     message = "Mokėjimas nepavyko";
   }
 
-  // Report event to Saleor
-  const pspReference = uuidv7();
+  // Derived from the callback rather than random, so Paysera's own retries of a
+  // notification dedupe through `alreadyProcessed` instead of stacking up as
+  // fresh events. Distinct statuses still produce distinct events.
+  const pspReference = `${callbackData.orderid}:${callbackData.status}`;
   const amount = callbackData.amount / 100; // Convert from cents
+
+  // A late or out-of-order callback must never move a transaction backwards out
+  // of a charged state -- the money has already arrived.
+  if (eventType === TransactionEventTypeEnum.ChargeFailure) {
+    const current = await client.query(TransactionDetailsViaIdDocument, { id: transactionId });
+    const alreadyCharged = current.data?.transaction?.chargedAmount?.amount ?? 0;
+
+    if (alreadyCharged > 0) {
+      logger.warn("Ignoring failure callback for an already-charged transaction", {
+        transactionId,
+        alreadyCharged,
+        status: callbackData.status,
+      });
+      return res.status(200).send("OK");
+    }
+  }
 
   const availableActions: TransactionActionEnum[] =
     eventType === TransactionEventTypeEnum.ChargeSuccess
