@@ -1,3 +1,4 @@
+import type { NextApiRequest, NextApiResponse } from "next";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TransactionEventTypeEnum, TransactionDetailsViaIdDocument } from "@/generated/graphql";
@@ -6,7 +7,11 @@ import { PayseraStatus } from "@/modules/paysera/paysera-types";
 
 // vi.mock calls below are hoisted above this import by vitest, so the handler
 // picks up the mocked Saleor client and APL.
-import handler from "../callback";
+//
+// This test deliberately lives outside src/pages: everything under there is a
+// Next route, so a *.test.ts beside the handler would be built and served as a
+// live API endpoint.
+import handler from "@/pages/api/paysera/callback";
 
 const { aplGet, querySpy, mutationSpy } = vi.hoisted(() => ({
   aplGet: vi.fn(),
@@ -101,8 +106,7 @@ async function invokeCallback(overrides: Record<string, string> = {}) {
     },
   };
   const res = createRes();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await handler(req as any, res as any);
+  await handler(req as unknown as NextApiRequest, res as unknown as NextApiResponse);
   return res;
 }
 
@@ -255,8 +259,7 @@ describe("paysera callback — server notification", () => {
       },
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await handler(req as any, res as any);
+    await handler(req as unknown as NextApiRequest, res as unknown as NextApiResponse);
 
     expect(res.statusCode).toBe(400);
     expect(mutationSpy).not.toHaveBeenCalled();
@@ -279,8 +282,7 @@ describe("paysera callback — customer redirect", () => {
       },
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await handler(req as any, res as any);
+    await handler(req as unknown as NextApiRequest, res as unknown as NextApiResponse);
 
     expect(res.statusCode).toBe(302);
     expect(res.redirectedTo).toContain("paymentReturn=paysera");
