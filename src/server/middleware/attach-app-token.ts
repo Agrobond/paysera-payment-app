@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { middleware } from "../server";
 import { saleorApp } from "@/saleor-app";
+import { verifyDashboardToken } from "./verify-dashboard-token";
 
 /**
  * Perform APL token retrieval in middleware, required by every handler that connects to Saleor
@@ -21,6 +22,8 @@ export const attachAppToken = middleware(async ({ ctx, next }) => {
       message: "Missing auth data",
     });
   }
+
+  await verifyDashboardToken(ctx.token, authData);
 
   return next({
     ctx: {
