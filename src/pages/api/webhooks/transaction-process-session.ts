@@ -2,15 +2,12 @@ import { SaleorSyncWebhook } from "@saleor/app-sdk/handlers/next";
 import { v7 as uuidv7 } from "uuid";
 import { saleorApp } from "@/saleor-app";
 import {
-  TransactionEventTypeEnum,
   TransactionFlowStrategyEnum,
   TransactionProcessSessionDocument,
   TransactionProcessSessionEventFragment,
 } from "@/generated/graphql";
 import { createLogger } from "@/lib/logger/create-logger";
-import { dataSchema, ResponseType } from "@/modules/validation/sync-transaction";
-import { getZodErrorMessage } from "@/lib/zod-error";
-import { getTransactionActions } from "@/lib/transaction-actions";
+import { ResponseType } from "@/modules/validation/sync-transaction";
 import { AppUrlGenerator } from "@/modules/url/app-url-generator";
 import { wrapWithLoggerContext } from "@/lib/logger/logger-context";
 import { withOtel } from "@/lib/otel/otel-wrapper";
@@ -32,58 +29,45 @@ export default wrapWithLoggerContext(
       const { payload } = ctx;
       const { actionType, amount } = payload.action;
 
-      logger.debug("Received webhook", { payload });
-
-      const rawEventData = payload.data;
-      const dataResult = dataSchema.safeParse(rawEventData);
-
-      if (dataResult.error) {
-        logger.warn("Invalid data field received in notification", { error: dataResult.error });
-
-        // Report the payment as still in progress, NOT as failed. This handler is
-        // the unmodified app-template stub: `dataSchema` only accepts the
-        // template's own test-harness shape, so any real caller lands here. The
-        // Paysera flow never calls `transactionProcess` (only the Adyen and
-        // Stripe drop-ins do), but declaring a live payment dead because this
-        // stub could not parse its payload would be a bad way to find that out.
-        // A *_REQUEST result leaves the real callback free to resolve it.
-        const errorResponse: ResponseType = {
-          pspReference: uuidv7(),
-          result:
-            actionType === TransactionFlowStrategyEnum.Charge
-              ? "CHARGE_REQUEST"
-              : "AUTHORIZATION_REQUEST",
-          message: getZodErrorMessage(dataResult.error),
-          amount,
-          actions: [],
-          data: {
-            exception: true,
-          },
-        };
-
-        logger.info("Returning error response to Saleor", { response: errorResponse });
-
-        return res.status(200).json(errorResponse);
-      }
-
-      const data = dataResult.data;
-
-      logger.info("Parsed data field from notification", { data });
-
+      // SECURITY — never derive the payment result from `payload.data`.
+      //
+      // Saleor's `transactionProcess` mutation is public: it has no permission
+      // requirement and no checkout-ownership check (confirmed in Saleor core,
+      // transaction_process.py), so anyone can call it and it hands this webhook
+      // the caller's own `data`. The previous version parsed `data.event.type`
+      // and echoed it straight back as the transaction result, so a request like
+      //   transactionProcess(id, data: { event: { type: "CHARGE_SUCCESS" } })
+      // made us tell Saleor the order was paid — for the full amount, with no
+      // money moved. That is a free-order hole.
+      //
+      // Paysera's genuine outcome never arrives through this webhook. Payment is
+      // confirmed only by the signed `/api/paysera/callback`, which verifies the
+      // `ss1` signature before reporting CHARGE_SUCCESS/FAILURE. The storefront
+      // only ever drives `transactionProcess` for the Adyen/Stripe drop-ins,
+      // never for Paysera. So this handler must stay non-terminal: it always
+      // answers "still in progress" and leaves the signed callback to resolve
+      // the charge. A *_REQUEST result cannot complete a checkout on its own
+      // (it moves the pending amount, not the charged amount).
       const urlGenerator = new AppUrlGenerator(ctx.authData);
 
-      const successResponse: ResponseType = {
-        pspReference: data.event.includePspReference ? uuidv7() : undefined,
-        result: data.event.type,
-        message: "Operacija sėkminga",
-        actions: getTransactionActions(data.event.type as TransactionEventTypeEnum),
+      const response: ResponseType = {
+        pspReference: uuidv7(),
+        result:
+          actionType === TransactionFlowStrategyEnum.Charge
+            ? "CHARGE_REQUEST"
+            : "AUTHORIZATION_REQUEST",
+        message: "Mokėjimas apdorojamas Paysera sistemoje",
         amount,
+        actions: [],
         externalUrl: urlGenerator.getTransactionDetailsUrl(payload.transaction.id),
       };
 
-      logger.info("Returning response to Saleor", { response: successResponse });
+      logger.info(
+        "Paysera process-session: returning in-progress; the signed callback resolves the charge",
+        { transactionId: payload.transaction.id },
+      );
 
-      return res.status(200).json(successResponse);
+      return res.status(200).json(response);
     }),
     "/api/webhooks/transaction-process-session"
   ),

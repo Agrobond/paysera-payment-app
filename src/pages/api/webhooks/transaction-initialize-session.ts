@@ -138,7 +138,12 @@ export default wrapWithLoggerContext(
         });
 
         const successResponse: ResponseType = {
-          pspReference,
+          // Stamp the Paysera order id (not a random uuid) onto this transaction's
+          // CHARGE_ACTION_REQUIRED event. The signed server callback reads it back
+          // to confirm the callback is about THIS transaction, for THIS amount —
+          // see src/pages/api/paysera/callback.ts. The event's own `amount` is the
+          // sum we ask Paysera to collect, which the callback also checks against.
+          pspReference: paymentRequest.orderId,
           result: "CHARGE_ACTION_REQUIRED",
           message: "Nukreipiama į Paysera mokėjimui užbaigti",
           actions: getTransactionActions("CHARGE_ACTION_REQUIRED"),

@@ -42,6 +42,14 @@ const TRANSACTION_ID = "VHJhbnNhY3Rpb25JdGVtOjEyMw==";
 /** Amount currently charged on the transaction, as Saleor would report it. */
 let chargedAmount = 0;
 
+// The CHARGE_ACTION_REQUIRED event transaction-initialize-session stamped on this
+// transaction — what the callback validates its signed data against. Defaults match
+// buildCallback()'s defaults so a plain callback passes binding; tests override to
+// simulate a replay onto the wrong transaction.
+let initEventPspRef: string = "AGBORDER1A2B3C4D5E";
+let initEventAmount = 89.76;
+let initEventCurrency = "EUR";
+
 /**
  * Builds a genuinely-signed Paysera callback. The handler runs real signature
  * verification, so tests cannot hand it an arbitrary blob.
@@ -49,7 +57,7 @@ let chargedAmount = 0;
 function buildCallback(overrides: Record<string, string> = {}) {
   const params: Record<string, string> = {
     projectid: PROJECT_ID,
-    orderid: "AGB-ORDER-1",
+    orderid: "AGBORDER1A2B3C4D5E",
     amount: "8976",
     currency: "EUR",
     status: "1",
@@ -124,13 +132,27 @@ function reportedEvent() {
 beforeEach(() => {
   vi.clearAllMocks();
   chargedAmount = 0;
+  initEventPspRef = "AGBORDER1A2B3C4D5E";
+  initEventAmount = 89.76;
+  initEventCurrency = "EUR";
 
   aplGet.mockResolvedValue({ token: "app-token", saleorApiUrl: SALEOR_API_URL });
 
   querySpy.mockImplementation((document: unknown) => {
     if (document === TransactionDetailsViaIdDocument) {
       return Promise.resolve({
-        data: { transaction: { chargedAmount: { amount: chargedAmount, currency: "EUR" } } },
+        data: {
+          transaction: {
+            chargedAmount: { amount: chargedAmount, currency: "EUR" },
+            events: [
+              {
+                type: TransactionEventTypeEnum.ChargeActionRequired,
+                pspReference: initEventPspRef,
+                amount: { amount: initEventAmount, currency: initEventCurrency },
+              },
+            ],
+          },
+        },
       });
     }
 
@@ -207,7 +229,7 @@ describe("paysera callback — server notification", () => {
     await invokeCallback({ status: String(PayseraStatus.SUCCESS) });
 
     expect(reportedEvent().pspReference).toBe(first);
-    expect(first).toContain("AGB-ORDER-1");
+    expect(first).toContain("AGBORDER1A2B3C4D5E");
   });
 
   it("gives distinct statuses distinct pspReferences", async () => {
@@ -263,6 +285,60 @@ describe("paysera callback — server notification", () => {
 
     expect(res.statusCode).toBe(400);
     expect(mutationSpy).not.toHaveBeenCalled();
+  });
+});
+
+// A valid signature only proves the blob came from Paysera. These assert the
+// blob is also bound to the transaction it is being applied to, so a genuine
+// signed callback cannot be replayed onto a different/larger transaction.
+describe("paysera callback — transaction binding", () => {
+  it("rejects a signed callback whose orderid is not this transaction's", async () => {
+    // e.g. a genuine receipt for one order replayed against another transaction.
+    const res = await invokeCallback({ orderid: "AGBORDER999ZZZZZZZ" });
+
+    expect(res.statusCode).toBe(400);
+    expect(mutationSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects a signed callback whose amount is less than the order's", async () => {
+    const res = await invokeCallback({ amount: "100" }); // €1.00 vs the order's €89.76
+
+    expect(res.statusCode).toBe(400);
+    expect(mutationSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects a signed callback for a different Paysera project", async () => {
+    const res = await invokeCallback({ projectid: "99999" });
+
+    expect(res.statusCode).toBe(400);
+    expect(mutationSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects a signed callback in a different currency", async () => {
+    const res = await invokeCallback({ currency: "USD" });
+
+    expect(res.statusCode).toBe(400);
+    expect(mutationSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects a test-mode callback while the app is in live mode", async () => {
+    // config mock has testMode: false, so a test=1 callback must not charge.
+    const res = await invokeCallback({ status: String(PayseraStatus.SUCCESS), test: "1" });
+
+    expect(res.statusCode).toBe(400);
+    expect(mutationSpy).not.toHaveBeenCalled();
+  });
+
+  // Transactions created before the order-id binding existed stored a random uuid
+  // as the init event's pspReference. Those must still be honoured — the amount,
+  // currency and project checks keep them bound.
+  it("still accepts a legacy transaction whose stored pspReference is a uuid", async () => {
+    initEventPspRef = "018f8e21-6e2a-7c41-9b3a-2f1d3c4b5a6e";
+
+    const res = await invokeCallback({ status: String(PayseraStatus.SUCCESS) });
+
+    expect(res.statusCode).toBe(200);
+    expect(reportedEvent().type).toBe(TransactionEventTypeEnum.ChargeSuccess);
   });
 });
 

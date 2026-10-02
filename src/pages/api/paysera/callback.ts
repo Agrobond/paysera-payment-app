@@ -156,6 +156,80 @@ async function handleServerCallback(
     test: callbackData.test,
   });
 
+  // ── Bind the signed callback to THIS transaction ───────────────────────────
+  // The signature proves the `data` blob came from Paysera, but `transactionId`
+  // is an *unsigned* URL param, and the amount/order/project/currency live only
+  // inside that blob. Without tying them together, a genuine signed callback for
+  // one payment could be replayed against a different transaction, or an amount
+  // smaller than the order is worth could be credited. So before reporting
+  // anything to Saleor, confirm the callback is about the transaction it names,
+  // for the amount that transaction was created with, in our project and currency.
+  const txResult = await client.query(TransactionDetailsViaIdDocument, { id: transactionId });
+  const transaction = txResult.data?.transaction;
+  if (txResult.error || !transaction) {
+    logger.error("Failed to fetch transaction for callback validation", {
+      transactionId,
+      error: txResult.error,
+    });
+    // 5xx so Paysera retries: we can't validate without the transaction.
+    return res.status(500).send("Failed to fetch transaction");
+  }
+
+  // transaction-initialize-session stamps the Paysera order id as the pspReference
+  // of the CHARGE_ACTION_REQUIRED event, and that event's `amount` is the sum we
+  // asked Paysera to collect (in the transaction currency).
+  const initEvent = transaction.events.find(
+    (e) => e.type === TransactionEventTypeEnum.ChargeActionRequired,
+  );
+  const expectedOrderId = initEvent?.pspReference ?? null;
+  const expectedAmountMinor =
+    initEvent?.amount?.amount != null ? Math.round(initEvent.amount.amount * 100) : null;
+  const expectedCurrency = initEvent?.amount?.currency ?? null;
+
+  const rejectMismatch = (reason: string, detail: Record<string, unknown>) => {
+    logger.error(`Paysera callback rejected: ${reason}`, { transactionId, ...detail });
+    return res.status(400).send("Callback does not match transaction");
+  };
+
+  // Must be our Paysera project.
+  if (callbackData.projectid !== payseraConfig.projectId) {
+    return rejectMismatch("projectid mismatch", { callbackProjectId: callbackData.projectid });
+  }
+
+  // Must be the order id this transaction was created with. Transactions created
+  // before this binding existed stored a random uuid here (it contains dashes; a
+  // Paysera order id, built from stripped alphanumerics, never does) — skip the
+  // order-id check for those; the amount/currency/project checks still bind them.
+  const isLegacyPspRef = !expectedOrderId || expectedOrderId.includes("-");
+  if (!isLegacyPspRef && callbackData.orderid !== expectedOrderId) {
+    return rejectMismatch("orderid mismatch", {
+      callbackOrderId: callbackData.orderid,
+      expectedOrderId,
+    });
+  }
+
+  // Must be for the amount we asked Paysera to collect.
+  if (expectedAmountMinor != null && callbackData.amount !== expectedAmountMinor) {
+    return rejectMismatch("amount mismatch", {
+      callbackAmount: callbackData.amount,
+      expectedAmountMinor,
+    });
+  }
+
+  // Must be in the transaction's currency.
+  if (expectedCurrency && callbackData.currency !== expectedCurrency) {
+    return rejectMismatch("currency mismatch", {
+      callbackCurrency: callbackData.currency,
+      expectedCurrency,
+    });
+  }
+
+  // Never accept a test-mode callback when the app is set up for live collection:
+  // a sandbox payment must not be able to mark a real order paid.
+  if (callbackData.test === 1 && !payseraConfig.testMode) {
+    return rejectMismatch("test callback while app is in live mode", { test: callbackData.test });
+  }
+
   // Determine event type based on payment status
   let eventType: TransactionEventTypeEnum;
   let message: string;
@@ -188,10 +262,10 @@ async function handleServerCallback(
   const amount = callbackData.amount / 100; // Convert from cents
 
   // A late or out-of-order callback must never move a transaction backwards out
-  // of a charged state -- the money has already arrived.
+  // of a charged state -- the money has already arrived. (Reuses the transaction
+  // already fetched above for binding validation.)
   if (eventType === TransactionEventTypeEnum.ChargeFailure) {
-    const current = await client.query(TransactionDetailsViaIdDocument, { id: transactionId });
-    const alreadyCharged = current.data?.transaction?.chargedAmount?.amount ?? 0;
+    const alreadyCharged = transaction.chargedAmount?.amount ?? 0;
 
     if (alreadyCharged > 0) {
       logger.warn("Ignoring failure callback for an already-charged transaction", {
